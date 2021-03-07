@@ -1,10 +1,31 @@
 /*
- * P I N G D E M O
+ * P I N G D E M O . G O
+ *
+ * Ping a networked device
+ *
+ * Use the IP4 icmp socket to send an ICMP Echo request
+ *
+ * Last Modified on Sun Mar  7 20:15:13 2021
  *
  */
 
 /*
- * Use the IP4 icmp socket to send an ICMP Echo request
+ * 0v1 Better handling of timeout error messages.
+ * 0v0 Code now times-out when device doesn't respond.
+ *     Flattened error checks.
+ *
+ * This demo code originated from the ideas in section 3.11
+ * of the "Socket-level Programming" chapter of the
+ * Jan Newmarch ebook; -
+ * https://jan.newmarch.name/go/socket/chapter-socket.html
+ * I couldn't get the ping code published in the ebook to
+ * work for me, but after some editing it began working.
+ * 
+ */
+
+/*
+ * At least "go version go1.15.6 windows/amd64" can compile the code; -
+ *  go build pingDemo.go
  *
  */
 
@@ -19,12 +40,14 @@ import (
 )
 
 func main() {
-	fmt.Println("Welcome to the ping demo")
-	fmt.Println("The (Start) time is", time.Now())
+    startTime := time.Now()
 	if len(os.Args) != 2 {
-		fmt.Println("Usage: ", os.Args[0], "nameOrIP4NumbersOfDeviceToPing")
+		fmt.Println("?? Please specify the name or IP4 address of the device to ping?")
+		fmt.Println(" Usage: ", os.Args[0], "name_Or_IP4NumbersOfDeviceToPing")
 		os.Exit(1)
 	}
+	fmt.Println("Welcome to ping demo 0v1, compiled go code")
+	fmt.Println("The (Start) time is", startTime )
 	addr, err := net.ResolveIPAddr("ip4", os.Args[1])
 	if err != nil {
 		fmt.Println("Address Resolution error", err.Error())
@@ -53,12 +76,17 @@ func main() {
 		if err != nil {
 			fmt.Println(wrtLen, " bytes sent and send ICMP Echo Request failed", err.Error()) // handle send error
 		} else {
-			deadLineTime := time.Now().Add(2e9) //set 2 sec timeout?
+			deadLineTime := time.Now().Add(5e9) //set 5 sec timeout?
 			var icmpReply [512]byte
 			conn.SetReadDeadline(deadLineTime)
 			rdLen, err := conn.Read(icmpReply[0:])
 			if err != nil {
-				fmt.Println(rdLen, " bytes read and receive ICMP Echo Reply failed", err.Error()) // handle error
+                if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+                    fmt.Println(os.Args[1], "(", addr.String(), ") did not respond in 5 sec:")
+                } else {
+				    fmt.Println("Ping failed:", rdLen, " bytes read:")
+                    fmt.Println(err.Error()) // display error string
+                }
 			} else {
 				okFlag := checkReplyLengthIsEqualOrLongerThanICMP_HdrLength(rdLen)
 				okFlag = okFlag && checkReplyChecksum(checkSum(icmpReply[rdLen-8:rdLen]))
@@ -135,7 +163,7 @@ func checkReplyChecksum(replyChecksum uint16) bool {
 
 func checkReplyLengthIsEqualOrLongerThanICMP_HdrLength(replyLength int) bool {
 	if replyLength < 8 {
-		fmt.Println("Reply is to short. It should be at least 8 bytes long. It was ", replyLength, " bytes.")
+		fmt.Println("ICMP Echo Reply is too short. It should be at least 8 bytes long. It was ", replyLength, " bytes.")
 		return false
 	}
 	return true
