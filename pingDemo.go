@@ -1,15 +1,16 @@
 /*
  * P I N G D E M O . G O
  *
- * Ping a networked device
+ * Ping one or more networked devices
  *
- * Use the IP4 icmp socket to send an ICMP Echo request
+ * Send an ICMP Echo request and look for an ICMP echo reply
  *
- * Last Modified on Sun Mar  7 20:15:13 2021
+ * Last Modified on Sun Jan  2 21:59:54 2022
  *
  */
 
 /*
+ * 0v2 Better command line option handling: -D(ebug), -v(erbose) -w(ait) <duration>
  * 0v1 Better handling of timeout error messages.
  * 0v0 Code now times-out when device doesn't respond.
  *     Flattened error checks.
@@ -32,6 +33,7 @@
 package main
 
 import (
+    "flag"  //command line options package
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -41,72 +43,102 @@ import (
 
 func main() {
     startTime := time.Now()
-	if len(os.Args) != 2 {
+    verboseFlag := flag.Bool("v", false, "Turn on verbose output")
+    debugFlag := flag.Bool("D", false, "Turn on Debug output")
+    waitStr := flag.String("w", "2", "Timeout wait time in seconds")
+    flag.Parse()
+    ipAddresses := flag.Args()
+	if *verboseFlag || *debugFlag {
+        fmt.Println("Welcome to ping demo 0v2, compiled go code")
+        fmt.Println("The (Start) time is", startTime )
+    }
+    if *debugFlag {
+        fmt.Println("Debug: Debug flag is true")
+        fmt.Println("Debug: verbose flag is", *verboseFlag)
+        fmt.Println("Debug: wait timeout value is", *waitStr, "seconds")
+        fmt.Println("Debug:", len(ipAddresses), "positional args", ipAddresses)
+    }
+	if len(ipAddresses) < 1 {
 		fmt.Println("?? Please specify the name or IP4 address of the device to ping?")
-		fmt.Println(" Usage: ", os.Args[0], "name_Or_IP4NumbersOfDeviceToPing")
+		fmt.Println(" E.g.: ", os.Args[0], "[-D] [-v] [-w Int] name_Or_IP4NumbersOfDeviceToPing")
+        flag.Usage()
 		os.Exit(1)
 	}
-	fmt.Println("Welcome to ping demo 0v1, compiled go code")
-	fmt.Println("The (Start) time is", startTime )
-	addr, err := net.ResolveIPAddr("ip4", os.Args[1])
-	if err != nil {
-		fmt.Println("Address Resolution error", err.Error())
-		os.Exit(1)
-	}
-	timeOut, err := time.ParseDuration("1s")
-	if err != nil {
-		fmt.Println("Duration error", err.Error())
-		os.Exit(1)
-	}
-	conn, err := net.DialTimeout("ip4:icmp", addr.String(), timeOut)
-	if err != nil {
-		fmt.Println("DialTimeout failed", err.Error()) // handle error
-	} else {
-		var pid uint16 = uint16(os.Getpid() & 0xffff) //Use process id as the ICMP identifier
-		var seq uint16 = uint16(1234)                 //create ICMP Sequence number
-		var icmpHdr [16]byte
-		icmpHdr[0] = 8                                // ICMP Echo Request
-		icmpHdr[1] = 0                                // Code 0
-		binary.BigEndian.PutUint16(icmpHdr[2:4], 0)   //ICMP Checksum, need 0 for initial calc of checksum
-		binary.BigEndian.PutUint16(icmpHdr[4:6], pid) //ICMP Identifier
-		binary.BigEndian.PutUint16(icmpHdr[6:8], seq) //ICMP Sequence
-		icmpHdrChkSum := checkSum(icmpHdr[0:8])
-		binary.BigEndian.PutUint16(icmpHdr[2:4], icmpHdrChkSum) //Set ICMP Checksum for Echo Request
-		wrtLen, err := conn.Write(icmpHdr[0:8])
-		if err != nil {
-			fmt.Println(wrtLen, " bytes sent and send ICMP Echo Request failed", err.Error()) // handle send error
-		} else {
-			deadLineTime := time.Now().Add(5e9) //set 5 sec timeout?
-			var icmpReply [512]byte
-			conn.SetReadDeadline(deadLineTime)
-			rdLen, err := conn.Read(icmpReply[0:])
-			if err != nil {
-                if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-                    fmt.Println(os.Args[1], "(", addr.String(), ") did not respond in 5 sec:")
+    sktTimeOut, err := time.ParseDuration("1s")    //Probably over-kill, but create 1 sec time out value
+    if err != nil {
+        fmt.Println("?? Create Socket Time Out duration error", err.Error())
+        os.Exit(2)
+    }
+    replyTimeOut, err := time.ParseDuration(*waitStr + "s")    //convert sec time out value
+    if err != nil {
+        fmt.Println("?? -w <duration> Reply Time Out duration error", err.Error())
+        os.Exit(3)
+    }
+    if *debugFlag {
+        fmt.Println( "Debug: Timeout ICMP socket creation is", sktTimeOut )
+        fmt.Println( "Debug: Timeout ICMP echo reply is", replyTimeOut )
+    }
+    /*
+     * Loop through internet device names or IP addresses and ping each one
+     */
+    for _, ipAddr := range ipAddresses {
+        addr, err := net.ResolveIPAddr("ip4", ipAddr)
+        if err != nil {
+            fmt.Println(ipAddr, "IPv4 Address Resolution error:", err.Error())
+        } else {
+            conn, err := net.DialTimeout("ip4:icmp", addr.String(), sktTimeOut)
+            if err != nil {
+                fmt.Println(ipAddr, "DialTimeout() function failed", err.Error()) // handle error
+            } else {
+                var pid uint16 = uint16(os.Getpid() & 0xffff) //Use process id as the ICMP identifier
+                var seq uint16 = uint16(1234)                 //create ICMP Sequence number
+                var icmpHdr [16]byte
+                icmpHdr[0] = 8                                // ICMP Echo Request
+                icmpHdr[1] = 0                                // Code 0
+                binary.BigEndian.PutUint16(icmpHdr[2:4], 0)   //ICMP Checksum, need 0 for initial calc of checksum
+                binary.BigEndian.PutUint16(icmpHdr[4:6], pid) //ICMP Identifier
+                binary.BigEndian.PutUint16(icmpHdr[6:8], seq) //ICMP Sequence
+                icmpHdrChkSum := checkSum(icmpHdr[0:8])
+                binary.BigEndian.PutUint16(icmpHdr[2:4], icmpHdrChkSum) //Set ICMP Checksum for Echo Request
+                wrtLen, err := conn.Write(icmpHdr[0:8])
+                if err != nil {
+                    fmt.Println(wrtLen, " bytes sent and send ICMP Echo Request failed", err.Error()) // handle send error
                 } else {
-				    fmt.Println("Ping failed:", rdLen, " bytes read:")
-                    fmt.Println(err.Error()) // display error string
+                    deadLineTime := time.Now().Add(replyTimeOut) //set -w sec timeout (defaults to 2 sec)
+                    var icmpReply [512]byte
+                    conn.SetReadDeadline(deadLineTime)
+                    rdLen, err := conn.Read(icmpReply[0:])
+                    if err != nil {
+                        if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+                            fmt.Println(ipAddr, "(", addr.String(), ") did not respond in", *waitStr, "sec:")
+                        } else {
+                            fmt.Println("Ping failed:", rdLen, " bytes read:")
+                            fmt.Println(err.Error()) // display error string
+                        }
+                    } else {
+                        okFlag := checkReplyLengthIsEqualOrLongerThanICMP_HdrLength(rdLen)
+                        okFlag = okFlag && checkReplyChecksum(checkSum(icmpReply[rdLen-8:rdLen]))
+                        okFlag = okFlag && checkICMP_ReplyIsTypeEchoReply(icmpReply[rdLen-8])
+                        okFlag = okFlag && checkICMP_Code(icmpReply[rdLen-7])
+                        replyPid := binary.BigEndian.Uint16(icmpReply[rdLen-4 : rdLen-2])
+                        okFlag = okFlag && checkPid(replyPid, pid)
+                        replySeq := binary.BigEndian.Uint16(icmpReply[rdLen-2 : rdLen])
+                        okFlag = okFlag && checkSeq(replySeq, seq)
+                        if okFlag {
+                            fmt.Println(ipAddr, "(", addr.String(), ") is Alive")
+                        } else {
+                            fmt.Printf("% X\n", icmpReply[:rdLen])
+                        }
+                    }
                 }
-			} else {
-				okFlag := checkReplyLengthIsEqualOrLongerThanICMP_HdrLength(rdLen)
-				okFlag = okFlag && checkReplyChecksum(checkSum(icmpReply[rdLen-8:rdLen]))
-				okFlag = okFlag && checkICMP_ReplyIsTypeEchoReply(icmpReply[rdLen-8])
-				okFlag = okFlag && checkICMP_Code(icmpReply[rdLen-7])
-				replyPid := binary.BigEndian.Uint16(icmpReply[rdLen-4 : rdLen-2])
-				okFlag = okFlag && checkPid(replyPid, pid)
-				replySeq := binary.BigEndian.Uint16(icmpReply[rdLen-2 : rdLen])
-				okFlag = okFlag && checkSeq(replySeq, seq)
-				if okFlag {
-					fmt.Println(os.Args[1], "(", addr.String(), ") is Alive")
-				} else {
-					fmt.Printf("% X\n", icmpReply[:rdLen])
-				}
-			}
-		}
-		conn.Close()
+                conn.Close()
+            }
+        }
+    }
+	if *verboseFlag || *debugFlag {
+        fmt.Println("The (Finish) time is", time.Now())
 	}
-	fmt.Println("The (Finish) time is", time.Now())
-	os.Exit(0)
+    os.Exit(0)
 }
 
 func checkSum(msg []byte) uint16 {
