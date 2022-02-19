@@ -25,7 +25,7 @@ Versions
 
 Useage
 ```
-pingDemo [-c Int] [-D] [-v] [-w Int] name_Or_IP4NumbersOfDeviceToPing
+pingDemo [-c Int] [-D] [-p Float] [-v] [-w Float] name_Or_IP4NumbersOfDeviceToPing
 Usage of pingDemo:
   -D    Turn on Debug output
   -c int
