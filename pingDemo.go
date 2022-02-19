@@ -5,12 +5,13 @@
  *
  * Send an ICMP Echo request and look for an ICMP echo reply
  *
- * Last Modified on Thu Jan  6 00:20:08 2022
+ * Last Modified on Sat Feb 19 16:54:32 2022
  *
  */
 
 /*
- * 0v4 Output ping response delay & Multiple pings of the same host with -c(ount) 
+ * 0v5 Specify duraton between multiple pings with pause option -p X.X
+ * 0v4 Output ping response delay & Specify multiple pings of the same host with count option -c X 
  * 0v3 Increase size of sent ICMP echo reqest packet & more Debug output
  * 0v2 Better command line option handling: -D(ebug), -v(erbose) -w(ait) <duration>
  * 0v1 Better handling of timeout error messages.
@@ -49,24 +50,26 @@ func main() {
 	mainStartTime := time.Now()
 	countInt := flag.Int("c", 1, "Count number of Echo Requests for each host")
 	debugFlag := flag.Bool("D", false, "Turn on Debug output")
+	pauseStr := flag.String("p", "0.1", "Pause between Echo requests in seconds")  
 	verboseFlag := flag.Bool("v", false, "Turn on verbose output")
 	waitStr := flag.String("w", "2", "Individual Echo Reply Timeout wait time in seconds")
 	flag.Parse()
 	ipAddresses := flag.Args()
 	if *verboseFlag || *debugFlag {
-		fmt.Println("Welcome to ping demo 0v4, compiled go code")
+		fmt.Println("Welcome to ping demo 0v5, compiled go code")
 		fmt.Println("The (Start) time is", mainStartTime)
 	}
 	if *debugFlag {
 		fmt.Println("Debug: count value is ", *countInt)
 		fmt.Println("Debug: Debug flag is true")
 		fmt.Println("Debug: verbose flag is", *verboseFlag)
+		fmt.Println("Debug: pause value is", *pauseStr, "seconds")
 		fmt.Println("Debug: wait timeout value is", *waitStr, "seconds")
 		fmt.Println("Debug:", len(ipAddresses), "positional args", ipAddresses)
 	}
 	if len(ipAddresses) < 1 {
 		fmt.Println("?? Please specify the name or IP4 address of the device to ping?")
-		fmt.Println(" E.g.: ", os.Args[0], "[-c Int] [-D] [-v] [-w Int] name_Or_IP4NumbersOfDeviceToPing")
+		fmt.Println(" E.g.: ", os.Args[0], "[-c Int] [-D] [-p Float] [-v] [-w Float] name_Or_IP4NumbersOfDeviceToPing")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -80,9 +83,15 @@ func main() {
 		fmt.Println("?? -w <duration> Reply Time Out duration error", err.Error())
 		os.Exit(3)
 	}
+	pauseDuration, err := time.ParseDuration(*pauseStr + "s") //convert pause beween multiple ping sec value
+	if err != nil {
+		fmt.Println("?? -p <duration> Pause duration error", err.Error())
+		os.Exit(4)
+	}
 	if *debugFlag {
 		fmt.Println("Debug: Timeout for ICMP socket creation is", sktTimeOut)
 		fmt.Println("Debug: Timeout for ICMP echo reply is", replyTimeOut)
+		fmt.Println("Debug: Period between ICMP echo reply is", pauseDuration)
 	}
 	/*
 	 * Loop through internet device names or IP addresses and ping each one count times
@@ -161,7 +170,7 @@ func main() {
 						icmpSeq += 1	// bump up the ICMP sequence number each time after each ping
 						// Only delay for 1 second if the same host will be pinged again
 						if (indx + 1) < *countInt {
-							time.Sleep(time.Second)
+							time.Sleep(pauseDuration)
 						}
 					} // end of successful write to socket
 					conn.Close() // close the time-out connection after one use
